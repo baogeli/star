@@ -1,0 +1,90 @@
+package crawler
+
+import (
+	"fmt"
+	"github.com/gogf/gf/v2/frame/g"
+	"star/internal/utils"
+	"time"
+)
+
+// XueqiuQuote 雪球股票报价数据结构
+type XueqiuQuote struct {
+	Data struct {
+		Quote QuoteInfo `json:"quote"`
+	} `json:"data"`
+}
+
+// QuoteInfo 股票报价详细信息
+type QuoteInfo struct {
+	Symbol    string  `json:"symbol"`    // 股票代码
+	Name      string  `json:"name"`      // 股票名称
+	Current   float64 `json:"current"`   // 当前价格
+	Percent   float64 `json:"percent"`   // 涨跌幅(%)
+	Chg       float64 `json:"chg"`       // 涨跌额
+	Open      float64 `json:"open"`      // 开盘价
+	High      float64 `json:"high"`      // 最高价
+	Low       float64 `json:"low"`       // 最低价
+	Close     float64 `json:"close"`     // 收盘价
+	Volume    int64   `json:"volume"`    // 成交量
+	Turnover  float64 `json:"turnover"`  // 成交额
+	Timestamp int64   `json:"timestamp"` // 时间戳
+}
+
+// XueqiuCrawler 雪球爬虫
+type XueqiuCrawler struct {
+	httpClient *utils.HTTPClient
+}
+
+// NewXueqiuCrawler 创建新的雪球爬虫实例
+func NewXueqiuCrawler() *XueqiuCrawler {
+	return &XueqiuCrawler{
+		httpClient: utils.NewHTTPClient(),
+	}
+}
+
+// GetStockQuote 获取股票报价
+func (xc *XueqiuCrawler) GetStockQuote(symbol string) (*QuoteInfo, error) {
+	url := "https://stock.xueqiu.com/v5/stock/quote.json"
+
+	params := fmt.Sprintf("?symbol=%s&extend=detail", symbol)
+	fullURL := url + params
+
+	headers := map[string]string{
+		"User-Agent":      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36",
+		"Accept":          "*/*",
+		"Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+		"Origin":          "https://xueqiu.com",
+		"Referer":         fmt.Sprintf("https://xueqiu.com/S/%s", symbol),
+	}
+
+	// 从配置文件读取cookies
+	cookies := map[string]string{
+		"device_id":  g.Cfg().MustGet(nil, "xueqiu.cookies.device_id").String(),
+		"xq_a_token": g.Cfg().MustGet(nil, "xueqiu.cookies.xq_a_token").String(),
+		"u":          g.Cfg().MustGet(nil, "xueqiu.cookies.u").String(),
+	}
+
+	g.Dump(cookies)
+
+	responseBody, err := xc.httpClient.Get(fullURL, headers, cookies)
+	if err != nil {
+		return nil, fmt.Errorf("获取股票数据失败: %w", err)
+	}
+
+	var quoteData XueqiuQuote
+	err = utils.ParseJSON(responseBody, &quoteData)
+	if err != nil {
+		return nil, fmt.Errorf("解析响应数据失败: %w", err)
+	}
+
+	return &quoteData.Data.Quote, nil
+}
+
+// FormatTimestamp 格式化时间戳
+func (qi *QuoteInfo) FormatTimestamp() string {
+	if qi.Timestamp == 0 {
+		return ""
+	}
+	t := time.Unix(qi.Timestamp/1000, 0)
+	return t.Format("2006-01-02 15:04:05")
+}

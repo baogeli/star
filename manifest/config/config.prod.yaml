@@ -1,0 +1,21 @@
+# 生产环境配置文件
+server:
+  address:     ":8080"
+  openapiPath: "/api.json"
+  swaggerPath: "/swagger"
+
+logger:
+  level : "info"
+  stdout: true
+
+database:
+  default:
+    link: "mysql:${DB_USER}:${DB_PASSWORD}@tcp(${DB_HOST}:${DB_PORT})/${DB_NAME}?parseTime=true&loc=Local"
+    debug: true
+
+# 雪球爬虫配置
+xueqiu:
+  cookies:
+    device_id: "ce6aec8ec0983ece22daf3959c2c94b2"
+    xq_a_token: "b30e3a6a14d9cbe422149b7a71dbf9353d89849e"
+    u: "471758600436657"

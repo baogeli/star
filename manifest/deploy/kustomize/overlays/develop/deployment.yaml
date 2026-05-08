@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: boa-star
+spec:
+  template:
+    spec:
+      imagePullSecrets:
+        - name: aliyun-registry-secret
+      containers:
+        - name : main
+          image: registry.cn-hangzhou.aliyuncs.com/boa/star:v1.0.1
+          restartPolicy: Always
+          ports:
+            - containerPort: 8000
+          volumeMounts:
+            - name: config-volume
+              mountPath: /app/manifest/config
+            - name: log-volume
+              mountPath: /app/log
+          envFrom:
+            - secretRef:
+                name: star-db-secret
+      volumes:
+        - name: config-volume
+          configMap:
+            name: star-config
+        - name: log-volume
+          emptyDir: {}

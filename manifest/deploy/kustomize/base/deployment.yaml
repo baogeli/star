@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment # service configmap ingress deployment
+metadata:
+  name: boa-star
+  labels:
+    app: boa-star
+spec:  # specification 规范
+  replicas: 3
+  selector:
+    matchLabels:
+      app: boa-star
+  template:
+    metadata:
+      labels:
+        app: boa-star
+    spec:
+      containers:
+        - name : main
+          image: boa-star
+          imagePullPolicy: IfNotPresent
+

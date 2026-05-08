@@ -1,0 +1,309 @@
+package main
+
+import "fmt"
+
+// 闭包引用外部变量导致内存逃逸
+//func makeCounter() func() int {
+//	count := 0 // 这个变量会逃逸到堆上
+//	return func() int {
+//		count++
+//		return count
+//	}
+//}
+
+// 例子1：状态保持（替代全局变量）
+func newAccumulator() func(int) int {
+	sum := 0
+	return func(n int) int {
+		sum += n
+		return sum
+	}
+}
+
+// 例子2：函数工厂（动态生成逻辑）
+func multiplier(factor int) func(int) int {
+	return func(x int) int {
+		return x * factor
+	}
+}
+
+// 例子3：资源管理（延迟关闭）
+func withResource() func() {
+	resource := "打开的资源"
+	fmt.Println("获取", resource)
+	return func() {
+		fmt.Println("释放", resource)
+	}
+}
+
+func closure() func() int {
+	counts := 0
+	return func() int {
+		counts++
+		return counts
+	}
+}
+func main() {
+	/*
+		count 在堆上：因为被闭包引用，编译器将其分配到堆内存
+		引用共享：counter 函数内部操作的是同一个 count 变量
+		状态持久化：即使 makeCounter() 已返回，count 依然存在于内存中
+		第一次赋值是在makeCounter() 中赋值，count := 0
+		返回的函数值被引用到了堆上：所以每调用一下函数，count 都会递增
+	*/
+	//counter := closure()
+	//fmt.Println(counter()) // 1
+	//fmt.Println(counter()) // 2
+	//fmt.Println(counter()) // 3
+
+	var i []int
+	i = make([]int, 0)
+	i = append(i, 1)
+	fmt.Println(i)
+	return
+
+	//---------------------------------------------
+
+	double := multiplier(2)
+	triple := multiplier(3)
+
+	fmt.Println(double(5))
+	fmt.Println(triple(5))
+
+	/*
+				1. make 和 new 的区别﹖
+					a.返回值:make 返回类型本身(引用),new 返回类型的指针
+					b.初始化对象不同:make 初始化数据结构(map/slice/chan),new 分配内存并零值初始化任意类型
+					c.操作的对象不同:make 只能用于 map、slice、chan,new 可用于任何类型(基础类型、结构体等)
+					d.底层实现:make 由编译器特殊处理,创建并初始化内部数据结构;new 只是分配内存并返回指针
+					e.切片特殊情况:
+					   - var s []int 声明但未初始化,值为 nil,不能直接使用(追加元素会 panic)
+					   - s := make([]int, 0) 或 s := []int{} 初始化为空切片,可以正常使用 append
+				1.5 什么是内存逃逸？
+					a. 定义：变量本应分配在栈上，但编译器发现其在函数返回后仍被引用，于是分配到堆上
+					b. 常见场景：
+					   - 返回局部变量的指针
+					   - 向 channel 发送指针或包含指针的结构体
+					   - 闭包引用外部变量
+					   - 接口类型赋值（动态类型不确定）
+					   - slice/map 扩容时底层数组过大
+					c. 影响：堆分配需要 GC，增加性能开销；栈分配自动回收，效率更高
+					d. 查看方法：`go build -gcflags="-m" main.go`
+				2. 了解过golang的内存管理吗?
+					a. 垃圾回收算法：三色标记法（白色=未访问，灰色=已访问但子对象未扫描，黑色=已扫描）
+					b. 写屏障：混合写屏障（Go 1.8+），结合插入屏障和删除屏障，减少 STW 时间
+					c. 内存分配：
+					   - mspan：内存块，按大小分类（size class）
+					   - mcache：每 P 缓存，无锁分配小对象
+					   - mcentral：中央缓存，多个 P 共享
+					   - mheap：堆管理器，从操作系统申请内存
+					d. 触发条件：
+					   - 堆内存增长达到阈值（GOGC 控制，默认 100%）：当新分配的堆内存达到上次 GC 后存活内存的 GOGC 百分比时触发
+					     * 例如：上次 GC 后存活 100MB，GOGC=100，则堆增长到 200MB 时触发下一次 GC
+					     * 可通过 GOGC=off 关闭或设置具体数值（如 GOGC=50 表示更频繁）
+					   - 定时触发：至少 2 分钟一次（防止长时间不分配内存导致 GC 停滞）
+					e. STW（Stop The World）：
+					   - Go 1.8+ 混合写屏障将 STW 时间缩短至微秒级
+					   - 仅在标记开始和结束时需要短暂暂停所有 Goroutine
+				3. 调用函数传入结构体时，应该传值还是指针？说出你的理由?
+					a. 传值：小结构体（<几个字段）、不需要修改原数据、避免并发安全问题
+					b. 传指针：大结构体（避免拷贝开销）、需要修改原数据、实现接口方法
+					c. 原则：优先考虑语义清晰性，性能差异微小时选择更符合业务逻辑的方式
+				4. 线程有几种模型?Goroutine的原理了解过吗，讲一下实现和优势?
+				5. Goroutine什么时候会发生阻塞?
+					a. channel 操作（读写空/满通道）→ _Gwaiting
+					b. 网络 I/O（非阻塞，挂到 netpoller）→ _Gsyscall
+					c. 本地磁盘 I/O（同步系统调用）→ _Gwaiting
+					d. sync.Mutex/RWMutex 锁竞争 → _Gwaiting
+					e. time.Sleep / time.After → _Gwaiting
+					f. sync.WaitGroup.Wait() → _Gwaiting
+					g. syscall 系统调用 → _Gsyscall
+				6. PMG模型中Goroutine有哪几种状态?
+					a. _Gidle：刚被分配，未初始化
+					b. _Grunnable：在运行队列中，等待执行
+					c. _Grunning：正在 M 上执行
+					d. _Gwaiting：被阻塞（channel、锁、sleep等）
+					e. _Gsyscall：正在执行系统调用
+					f. _Gdead：已结束，可复用
+					g. _Gcopystack：栈正在复制中
+				7. 每个线程/协程占用多少内存知道吗?
+					a. 操作系统线程：默认栈大小约 1-8MB（Linux 默认 8MB，可通过 ulimit 调整）
+					b. Goroutine：初始栈大小 2KB（Go 1.4+），按需动态扩容（每次翻倍），最大可达 1GB（64位）/ 250MB（32位）
+					c. 优势：Goroutine 轻量级，单机可轻松启动数十万甚至百万个协程
+				8. 如果Goroutine—直占用资源怎么办,PMG模型怎么解决的这个问题?
+					a. 抢占式调度：Go 1.14+ 基于信号实现异步抢占，每 10ms 触发一次系统信号检查
+					b. Syscall Handoff：M 执行系统调用时，通过 handoffp() 将 P 移交给其他 M，避免阻塞
+					c. Work Stealing：空闲 M 会从其他 P 的运行队列中窃取 G 执行，实现负载均衡
+					d. 全局队列：当本地队列为空时，M 会从全局运行队列获取 G
+				9. 如果若干线程中一个线程OOM，会发生什么?如果是Goroutine 呢? 项目中出现过OOM吗，怎么解决的?
+					a. 操作系统线程 OOM：整个进程崩溃，所有线程终止
+					b. Goroutine OOM：触发 panic，只影响当前协程，其他协程继续运行（除非 panic 未被 recover）
+					c. 解决方案：
+					   - 限制 Goroutine 数量（使用信号量/缓冲 channel 控制并发）
+					   - 设置内存上限（runtime/debug.SetMemoryLimit，Go 1.19+）
+					   - 优化数据结构（避免大对象、及时释放引用）
+					   - 监控内存使用（pprof、prometheus）
+					   - 分批处理大数据集
+				10. 项目中错误处理是怎么做的?
+					a. 错误返回：使用 error 接口，函数返回 (result, error)
+					b. Panic 恢复：在关键位置（如 HTTP 中间件、Goroutine 入口）使用 defer + recover 捕获 panic
+					c. 日志记录：使用 g.Log().Error() 记录错误堆栈和上下文信息
+					d. 错误包装：使用 fmt.Errorf("context: %w", err) 或 errors.Wrap 保留错误链
+					e. 统一响应：API 层将错误转换为标准 JSON 格式返回给前端
+				11. 如果若干个Goroutine,其中有一个panic，会发生什么?
+					a. 未 recover：当前 Goroutine 崩溃退出，如果该 Goroutine 是 main 协程或最后一个运行的协程，整个程序崩溃
+					b. 其他 Goroutine：不受影响，继续正常运行
+					c. 已 recover：在当前 Goroutine 的 defer 中调用 recover() 可以捕获 panic，协程继续执行后续代码
+				12. defer可以捕获到其Goroutine的子Goroutine 的panic吗?
+					a. 不能：defer + recover 只能捕获当前 Goroutine 的 panic，无法跨协程捕获
+					b. 原因：每个 Goroutine 有独立的调用栈和 defer 链，panic 不会传播到父协程
+					c. 解决方案：在子 Goroutine 内部使用 defer + recover，通过 channel 将错误传递给父协程
+				13. 开发用Gin框架吗?Gin怎么做参数校验?
+				14. 中间件使用过吗?怎么使用的。Gin的错误处理使用过吗?Gin中自定义校验规则知道怎么做吗?自定义校验器的返回值呢?
+				15. golang中解析tag是怎么实现的？反射原理是什么？通过反射调用函数
+					a. Tag 解析：使用 reflect.TypeOf(field).Tag.Get("key") 获取结构体字段的 tag 值
+					b. 反射原理：
+					   - reflect.Type：类型信息（静态）
+					   - reflect.Value：值信息（动态），可通过 Interface() 转回原始值
+					   - 三定律：Reflection goes from interface value to reflection object, and back
+					c. 通过反射调用函数：
+					   ```go
+					   v := reflect.ValueOf(fn)
+					   result := v.Call([]reflect.Value{arg1, arg2})
+					   ```
+				16. golang的锁机制了解过吗? Mutex的锁有哪几种模式，分别介绍一下? Mutex锁底层如何实现了解过吗?
+					a. 两种模式：
+					   - 正常模式（Normal）：新来的 Goroutine 直接竞争锁，可能与等待队列中的 G 竞争
+					   - 饥饿模式（Starvation）：等待超过 1ms 后进入饥饿模式，新来的 G 直接进入等待队列尾部，不竞争锁
+					b. 底层实现：
+					   - 基于 CAS（Compare-And-Swap）原子操作实现自旋锁
+					   - 自旋优化：短暂自旋避免立即挂起，减少上下文切换开销
+					   - 信号量（sema）：自旋失败后进入等待队列，通过信号量唤醒
+					   - 自适应自旋：根据 CPU 核数和当前运行状态动态调整自旋次数
+				17. channel、channel使用中需要注意的地方？
+					a. 关闭原则：
+					   - 只在发送方关闭，接收方不要关闭
+					   - 不要重复关闭（会 panic）
+					   - 不要向已关闭的 channel 发送数据（会 panic）
+					b. 无缓冲 vs 有缓冲：
+					   - 无缓冲：同步通信，发送和接收必须同时就绪
+					   - 有缓冲：异步通信，缓冲区满时发送阻塞，空时接收阻塞
+					c. 常见陷阱：
+					   - Goroutine 泄漏：channel 未关闭导致协程永久阻塞
+					   - 死锁：所有 Goroutine 都在等待 channel，无人发送/接收
+					   - 从 nil channel 收发数据会永久阻塞
+				 18. Go 语言中的深拷贝和浅拷贝？
+					a. 浅拷贝:
+			           - 复制对象的引用(指针)，而不是完整的数据，与原对象共享一个内存位置
+					   - 修改其中一个对象，另一个对象也会被修改
+					b. 深拷贝:
+		  			   - 完整复制对象的整个数据，新对象与原对象互不影响
+				19. 说说channel的实现.（核心，拓展问题：通信常用手段，阻塞非阻塞，同步异步的区别，select／poll/epoll等等）
+					a. channel的实现从结构体属性展开
+					  type hchan struct {
+							qcount   uint           // 队列中元素数量
+							dataqsiz uint           // 环形缓冲区大小
+							buf      unsafe.Pointer // 指向环形缓冲区的指针
+							elemsize uint16         // 元素大小
+							closed   uint32         // 是否关闭
+							elemtype *_type         // 元素类型
+							sendx    uint           // 发送索引
+							recvx    uint           // 接收索引
+							recvq    waitq          // 等待接收的 goroutine 队列
+							sendq    waitq          // 等待发送的 goroutine 队列
+							lock     mutex          // 互斥锁，保护所有字段
+					  }
+					b. 核心机制
+						1. 无缓冲区：
+							dataqsiz = 0
+							同步通信 发送方必须要等到接受方就绪
+						2. 有缓冲区：
+							异步通信 缓冲区未潢满时发送方不会阻塞
+			 				缓冲区已满时发送方会阻塞
+				 20. 如何理解“不要通过共享内存来通信，要通过通信来共享内存”这句话？
+					a. 传统模式:
+						- 定一个全局变量多个go routine 加锁读写
+					b. 解耦生产者和消费者:
+						- 生产者不关心谁接收、何时接收
+						- 消费者不关心谁发送、何时发送
+						- Channel 作为中间层解耦
+
+				21. defer
+					作用延迟调用
+					后进先出
+					c-> b-> a->
+					<- c <- b <- a
+					应用场景 ,资源释放，关闭文件，关闭通道
+	*/
+
+	/*
+		--  什么是协程？
+			用户态的轻量级线程，初使栈空间占2k的内存,当栈空间不足时可以动态扩容
+
+	*/
+
+	/*
+						TCP有6种标示:SYN(建立联机) ACK(确认) PSH(传送) FIN(结束) RST(重置) URG(紧急)
+
+
+								TCP 关键的几个概念
+							列号（Seq）‌、‌ Sequence Number‌、
+								tcp每一次发送的数据包，都会带有一个序号（Sequence Number），用于标识数据包的顺序
+
+							确认号（Ack）‌、‌Acknowledgment Number, Ack
+
+							SYN和ACK标志位‌、‌
+							连接状态‌以
+							可靠性机制‌
+
+
+			第二次握手报文中的字段 		值		 作用对象			   含义					由谁在下一步确认？
+		    ack					    x + 1	 ‌客户端的 seq (x)   确认收到客户端的 SYN	    ‌客户端‌收到后，知道自己发的 x 被确认了
+			seq                     y        服务器的 seq (y)   服务端自己发起的 SYN	    ‌客户端‌在第三次握手中回复 ack = y + 1
+
+			!!!  客户端是在‌第二次握手‌结束时收到服务器发送的 ack=x+1 的。
+			第二次握手 服务器向客户端发送SYN + ACK 报文。
+			报文内容‌：
+				seq = y（服务器的初始序列号）
+				ack = x + 1（对客户端第一次握手 SYN 的确认）
+			客户端行为‌：客户端的网络协议栈接收到这个报文( 包含服务器发送的seq = y, ack = x + 1 )并解析出其中的 ack 字段值为 x + 1。
+
+			准备第三次握手
+			客户端收到 ack = x + 1 后，内部逻辑会执行以下判断：
+			‌确认成功‌：我知道服务器已经收到了我发出的 seq = x。
+			‌更新状态‌：根据 TCP 协议规则，既然服务器期望我下一个字节从 x + 1 开始，那么我下一次发送报文时，必须将序列号设置为 x + 1。
+
+				client:1
+				      SYN = 1 连接请求
+				      ACK = 0 确认服务器响应
+				      seq = X client随机生成的序列号 如 X = 1000
+				      ack = 未来会收到服务器传来的 1000 + 1 (1为 SYN标记的一个字节)
+
+				 server:2
+				      ACK = 1, SYN = 1 表示对client端连接SYN的确认，并发启自己的SYN请求
+				      seq = Y 服务器随机生成的初始序列号 如 Y = 5000
+				      ack = 1000 + 1 确认客户端的SYN报文，期望下次收到 X+1 的数据。 SYN 标志位本身占用 1 个字节
+
+				 client:3
+				      SYN = 0, ACK = 1：不再发起同步，仅作确认。
+				      seq = X + 1：客户端发送下一个序列号（SYN占用一个序号）。
+				      ack = Y + 1：确认服务器的SYN报文，期望下次收到 Y+1 的数据。
+
+				  建立连接之后：
+				      假设客户端（Client）初始序列号 seq = 1000，服务器（Server）初始序列号 seq = 5000。三次握手结束后，双方进入 ESTABLISHED 状态。
+
+				     1.客户端发送：
+				      seq = 1001 （因为握手时 SYN 占用了 1000，所以下一个可用序号是 1001）
+				      data = "Hello" (长度 5)
+				      含义：我发送的是字节流中第 1001 到 1005 字节的数据。
+
+				     2.服务器回复 ACK：
+				      ack = 1006 （1001 + 5）
+				      含义：我已收到直到 1005 的所有数据，期待你下次从 1006 开始发。
+
+				     3.客户端下一次发送：
+				      seq = 1006 （基于上一次的 seq 1001 + 数据长度 5）
+
+	*/
+
+}

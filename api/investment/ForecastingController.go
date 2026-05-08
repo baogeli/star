@@ -1,0 +1,672 @@
+package investment
+
+import (
+	"context"
+	"fmt"
+	"github.com/gogf/gf/v2/frame/g"
+	"github.com/gogf/gf/v2/os/gtime"
+	"github.com/spf13/cast"
+	"sort"
+	"star/internal/dao"
+	"star/internal/model/entity"
+)
+
+type ForecastingController struct {
+}
+
+type ForecastingReq struct {
+	g.Meta `path:"investment/forecasting" method:"get" sm:"forecasting" tags:"forecasting"`
+}
+
+type FundData struct {
+	Id                    int         `json:"id"                      orm:"id"                      dc:""`
+	FundCode              string      `json:"fund_code"               orm:"fund_code"               dc:"基金代码"`    // 基金代码
+	FundName              string      `json:"fund_name"               orm:"fund_name"               dc:"基金名称"`    // 基金名称
+	Exchange              string      `json:"exchange"                orm:"exchange"                dc:"交易所"`     // 交易所
+	FundCategory          string      `json:"fund_category"           orm:"fund_category"           dc:"资金类别"`    // 资金类别
+	OpeningPrice          float64     `json:"opening_price"           orm:"opening_price"           dc:"开盘价"`     // 开盘价
+	HighestPrice          float64     `json:"highest_price"           orm:"highest_price"           dc:"最高价"`     // 最高价
+	LowestPrice           float64     `json:"lowest_price"            orm:"lowest_price"            dc:"最低价"`     // 最低价
+	CurrentPrice          float64     `json:"current_price"           orm:"current_price"           dc:"当前价"`     // 当前价
+	PreviousClosePrice    float64     `json:"previous_close_price"    orm:"previous_close_price"    dc:"上一个收盘价"`  // 上一个收盘价
+	PriceChangePercentage float64     `json:"price_change_percentage" orm:"price_change_percentage" dc:"价格变化百分比"` // 价格变化百分比
+	Volume                int64       `json:"volume"                  orm:"volume"                  dc:"成交量"`     // 成交量
+	Turnover              float64     `json:"turnover"                orm:"turnover"                dc:"交易额"`     //交易额
+	CreateTime            *gtime.Time `json:"create_time"             orm:"create_time"             dc:"创建时间"`    // 创建时间
+}
+
+type ForecastingRes struct {
+	Holdings            []*HoldingInfo                 `json:"holdings" dc:"持仓概览"`
+	PriceTrends         map[string][]*FundData         `json:"price_trends" dc:"价格走势(按基金代码分组)"`
+	TechnicalIndicators map[string]*TechnicalIndicator `json:"technical_indicators" dc:"技术指标"`
+	TrendSignals        map[string]*TrendSignal        `json:"trend_signals" dc:"趋势预测信号"`
+	Rankings            *Rankings                      `json:"rankings" dc:"排名对比"`
+	Summary             *PortfolioSummary              `json:"summary" dc:"组合汇总"`
+}
+
+type TrendSignal struct {
+	Trend           string  `json:"trend" dc:"趋势方向: uptrend/downtrend/sideways"`
+	Signal          string  `json:"signal" dc:"交易信号: buy/sell/hold"`
+	Strength        string  `json:"strength" dc:"信号强度: strong/medium/weak"`
+	Confidence      float64 `json:"confidence" dc:"置信度(0-100%)"`
+	SupportLevel    float64 `json:"support_level" dc:"支撑位价格"`
+	ResistanceLevel float64 `json:"resistance_level" dc:"阻力位价格"`
+	Suggestion      string  `json:"suggestion" dc:"操作建议"`
+}
+
+type TechnicalIndicator struct {
+	MA5        float64 `json:"ma5" dc:"5日均线"`
+	MA20       float64 `json:"ma20" dc:"20日均线"`
+	Change5D   float64 `json:"change_5d" dc:"5日涨跌幅%"`
+	Change20D  float64 `json:"change_20d" dc:"20日涨跌幅%"`
+	AvgVolume  int64   `json:"avg_volume" dc:"平均成交量"`
+	RSI        float64 `json:"rsi" dc:"RSI相对强弱指标(0-100)"`
+	Volatility float64 `json:"volatility" dc:"波动率%"`
+}
+
+type Rankings struct {
+	ByProfitRate []*RankItem `json:"by_profit_rate" dc:"按盈亏率排名"`
+	ByChange5D   []*RankItem `json:"by_change_5d" dc:"按5日涨跌幅排名"`
+	ByChange20D  []*RankItem `json:"by_change_20d" dc:"按20日涨跌幅排名"`
+}
+
+type RankItem struct {
+	FundCode string  `json:"fund_code" dc:"基金代码"`
+	FundName string  `json:"fund_name" dc:"基金名称"`
+	Value    float64 `json:"value" dc:"数值"`
+}
+
+type HoldingInfo struct {
+	FundCode     string  `json:"fund_code" dc:"基金代码"`
+	FundName     string  `json:"fund_name" dc:"基金名称"`
+	Shares       int     `json:"shares" dc:"持有份额"`
+	CostPrice    float64 `json:"cost_price" dc:"成本价"`
+	CurrentPrice float64 `json:"current_price" dc:"当前价格"`
+	MarketValue  float64 `json:"market_value" dc:"市值"`
+	ProfitLoss   float64 `json:"profit_loss" dc:"盈亏"`
+	ProfitRate   float64 `json:"profit_rate" dc:"盈亏率"`
+}
+
+type PortfolioSummary struct {
+	TotalMarketValue float64 `json:"total_market_value" dc:"总市值"`
+	TotalCost        float64 `json:"total_cost" dc:"总成本"`
+	TotalProfitLoss  float64 `json:"total_profit_loss" dc:"总盈亏"`
+	TotalProfitRate  float64 `json:"total_profit_rate" dc:"总盈亏率"`
+}
+
+type TradeData struct {
+	Id              int         `json:"id"              orm:"id"                description:""`                       //
+	TradeTime       *gtime.Time `json:"tradeTime"       orm:"trade_time"        description:"交易日期"`                   // 交易日期
+	SecurityName    string      `json:"securityName"    orm:"security_name"     description:"基金名  / sɪˈkjʊrəti /"`    // 基金名  / sɪˈkjʊrəti /
+	SecurityId      int         `json:"securityId"      orm:"security_id"       description:"基金代码"`                   // 基金代码
+	EntrustTypeName string      `json:"entrustTypeName" orm:"entrust_type_name" description:"委托类型名 / ɪnˈtrʌst /"`     // 委托类型名 / ɪnˈtrʌst /
+	EntrustType     int         `json:"entrustType"     orm:"entrust_type"      description:"委托类型 1买入 2卖出 3红利 4手工冻结"` // 委托类型 1买入 2卖出 3红利 4手工冻结
+	Volume          int         `json:"volume"          orm:"volume"            description:"总量"`                     // 总量
+	Price           float64     `json:"price"           orm:"price"             description:"单价"`                     // 单价
+	Turnover        float64     `json:"turnover"        orm:"turnover"          description:"交易额   / tɜːrnoʊvər /"`   // 交易额   / tɜːrnoʊvər /
+	TradeId         string      `json:"tradeId"         orm:"trade_id"          description:"交易id"`                   // 交易id
+	ExchangeName    string      `json:"exchangeName"    orm:"exchange_name"     description:"交易所名称"`                  // 交易所名称
+	OrderSerialId   string      `json:"orderSerialId"   orm:"order_serial_id"   description:"订单序列号id  / ˈsɪriəl /"`   // 订单序列号id  / ˈsɪriəl /
+	ShareholderId   string      `json:"shareholderId"   orm:"shareholder_id"    description:"股东id"`                   // 股东id
+}
+
+func (f *ForecastingController) Forecasting(ctx context.Context, req *ForecastingReq) (res *ForecastingRes, err error) {
+	// 1. 获取持仓数据
+	hadFund, err := getHadFund(ctx)
+	if err != nil {
+		return
+	}
+	// 2. 定义基金代码列表
+	fundCodes := make([]string, 0, len(hadFund))
+	for _, v := range hadFund {
+		fundCodes = append(fundCodes, v.FundCode)
+	}
+
+	// 3. 构建持仓信息、价格走势和技术指标
+	holdings := make([]*HoldingInfo, 0)
+	priceTrends := make(map[string][]*FundData)
+	technicalIndicators := make(map[string]*TechnicalIndicator)
+	trendSignals := make(map[string]*TrendSignal)
+	var totalMarketValue, totalCost float64
+
+	// 用于排名
+	profitRateRanking := make([]*RankItem, 0)
+	change5DRanking := make([]*RankItem, 0)
+	change20DRanking := make([]*RankItem, 0)
+
+	for _, code := range fundCodes {
+		// 3.1 获取该基金的历史数据(最近30天)
+		var fundData []*FundData
+		err := dao.PyFund.Ctx(ctx).
+			Where(dao.PyFund.Columns().FundCode, code).
+			OrderDesc("create_time"). // 先倒序取最新的30条
+			Limit(30).
+			Scan(&fundData)
+		if err != nil || len(fundData) == 0 {
+			continue
+		}
+
+		// 反转为正序,方便前端画图
+		for i, j := 0, len(fundData)-1; i < j; i, j = i+1, j-1 {
+			fundData[i], fundData[j] = fundData[j], fundData[i]
+		}
+
+		// 存储价格走势
+		priceTrends[code] = fundData
+
+		// 3.2 计算技术指标
+		indicator := calculateTechnicalIndicators(fundData)
+		technicalIndicators[code] = indicator
+
+		// 3.3 生成趋势预测信号
+		signal := generateTrendSignal(fundData, indicator)
+		trendSignals[code] = signal
+
+		// 3.4 获取最新价格
+		latestPrice := fundData[len(fundData)-1].CurrentPrice
+
+		// 3.5 查找持仓信息
+		var shares int
+		var costPrice float64
+		for _, h := range hadFund {
+			if h.FundCode == code {
+				shares = h.Stocks
+				costPrice = h.BuyingPrice
+				break
+			}
+		}
+
+		// 3.6 计算盈亏
+		marketValue := latestPrice * float64(shares)
+		cost := costPrice * float64(shares)
+		profitLoss := marketValue - cost
+		profitRate := 0.0
+		if cost > 0 {
+			profitRate = profitLoss / cost * 100
+		}
+
+		// 3.7 构建持仓信息
+		holding := &HoldingInfo{
+			FundCode:     code,
+			FundName:     fundData[0].FundName,
+			Shares:       shares,
+			CostPrice:    costPrice,
+			CurrentPrice: latestPrice,
+			MarketValue:  marketValue,
+			ProfitLoss:   profitLoss,
+			ProfitRate:   profitRate,
+		}
+		holdings = append(holdings, holding)
+
+		// 3.8 添加到排名列表
+		profitRateRanking = append(profitRateRanking, &RankItem{
+			FundCode: code,
+			FundName: fundData[0].FundName,
+			Value:    profitRate,
+		})
+		change5DRanking = append(change5DRanking, &RankItem{
+			FundCode: code,
+			FundName: fundData[0].FundName,
+			Value:    indicator.Change5D,
+		})
+		change20DRanking = append(change20DRanking, &RankItem{
+			FundCode: code,
+			FundName: fundData[0].FundName,
+			Value:    indicator.Change20D,
+		})
+
+		totalMarketValue += marketValue
+		totalCost += cost
+	}
+
+	// 4. 计算组合汇总
+	totalProfitLoss := totalMarketValue - totalCost
+	totalProfitRate := 0.0
+	if totalCost > 0 {
+		totalProfitRate = totalProfitLoss / totalCost * 100
+	}
+
+	summary := &PortfolioSummary{
+		TotalMarketValue: totalMarketValue,
+		TotalCost:        totalCost,
+		TotalProfitLoss:  totalProfitLoss,
+		TotalProfitRate:  totalProfitRate,
+	}
+
+	// 5. 排序(降序)
+	sort.Slice(profitRateRanking, func(i, j int) bool {
+		return profitRateRanking[i].Value > profitRateRanking[j].Value
+	})
+	sort.Slice(change5DRanking, func(i, j int) bool {
+		return change5DRanking[i].Value > change5DRanking[j].Value
+	})
+	sort.Slice(change20DRanking, func(i, j int) bool {
+		return change20DRanking[i].Value > change20DRanking[j].Value
+	})
+
+	rankings := &Rankings{
+		ByProfitRate: profitRateRanking,
+		ByChange5D:   change5DRanking,
+		ByChange20D:  change20DRanking,
+	}
+
+	return &ForecastingRes{
+		Holdings:            holdings,
+		PriceTrends:         priceTrends,
+		TechnicalIndicators: technicalIndicators,
+		TrendSignals:        trendSignals,
+		Rankings:            rankings,
+		Summary:             summary,
+	}, nil
+}
+
+func getHadFund(ctx context.Context) ([]*entity.PyHad, error) {
+	var securityId []int
+	all, err := dao.PyHt.Ctx(ctx).Group(dao.PyHt.Columns().SecurityId).
+		Having(dao.PyHt.Columns().SecurityId + "!= 799999").
+		Fields(dao.PyHt.Columns().SecurityId).
+		All()
+	if err != nil {
+		return nil, err
+	}
+	for _, v := range all {
+		securityId = append(securityId, v["security_id"].Int())
+	}
+	var tradeData []*TradeData
+	for _, v := range securityId {
+		//fmt.Println("securityId === ", v)
+		var ht []*TradeData
+		err := dao.PyHt.Ctx(ctx).
+			Where(dao.PyHt.Columns().SecurityId, v).
+			OrderAsc(dao.PyHt.Columns().TradeTime).
+			Scan(&ht)
+		if err != nil {
+			continue
+		}
+
+		if len(ht) > 0 {
+			var volume int
+			var sub *TradeData
+			for _, sv := range ht {
+
+				// EntrustType not in (1,2) continue
+				if sv.EntrustType != 1 && sv.EntrustType != 2 {
+					continue
+				}
+
+				switch sv.EntrustType {
+				case 1:
+					volume += sv.Volume
+				case 2:
+					volume -= sv.Volume
+				}
+				sub = sv
+			}
+			if volume == 0 || sub == nil {
+				continue
+			}
+			sub.Volume = volume
+			tradeData = append(tradeData, sub)
+		}
+	}
+	var hadFunds []*entity.PyHad
+	for _, v := range tradeData {
+		h := &entity.PyHad{}
+		h.Id = v.Id
+		h.Stocks = v.Volume
+		h.FundCode = cast.ToString(v.SecurityId)
+		h.FundName = v.SecurityName
+		h.BuyingPrice = v.Price
+		hadFunds = append(hadFunds, h)
+	}
+	return hadFunds, nil
+}
+
+// calculateTechnicalIndicators 计算技术指标
+func calculateTechnicalIndicators(data []*FundData) *TechnicalIndicator {
+	if len(data) == 0 {
+		return &TechnicalIndicator{}
+	}
+
+	indicator := &TechnicalIndicator{}
+
+	// 计算5日均线
+	if len(data) >= 5 {
+		var sum5 float64
+		for i := len(data) - 5; i < len(data); i++ {
+			sum5 += data[i].CurrentPrice
+		}
+		indicator.MA5 = sum5 / 5
+	} else {
+		// 数据不足5天,用现有数据计算
+		var sum float64
+		for _, d := range data {
+			sum += d.CurrentPrice
+		}
+		indicator.MA5 = sum / float64(len(data))
+	}
+
+	// 计算20日均线
+	if len(data) >= 20 {
+		var sum20 float64
+		for i := len(data) - 20; i < len(data); i++ {
+			sum20 += data[i].CurrentPrice
+		}
+		indicator.MA20 = sum20 / 20
+	} else if len(data) > 0 {
+		// 数据不足20天,用现有数据计算
+		var sum float64
+		for _, d := range data {
+			sum += d.CurrentPrice
+		}
+		indicator.MA20 = sum / float64(len(data))
+	}
+
+	// 计算5日涨跌幅
+	if len(data) >= 5 {
+		oldPrice := data[len(data)-5].CurrentPrice
+		newPrice := data[len(data)-1].CurrentPrice
+		if oldPrice > 0 {
+			indicator.Change5D = (newPrice - oldPrice) / oldPrice * 100
+		}
+	}
+
+	// 计算20日涨跌幅
+	if len(data) >= 20 {
+		oldPrice := data[len(data)-20].CurrentPrice
+		newPrice := data[len(data)-1].CurrentPrice
+		if oldPrice > 0 {
+			indicator.Change20D = (newPrice - oldPrice) / oldPrice * 100
+		}
+	} else if len(data) > 1 {
+		// 数据不足20天,用最早和最新计算
+		oldPrice := data[0].CurrentPrice
+		newPrice := data[len(data)-1].CurrentPrice
+		if oldPrice > 0 {
+			indicator.Change20D = (newPrice - oldPrice) / oldPrice * 100
+		}
+	}
+
+	// 计算平均成交量
+	if len(data) > 0 {
+		var totalVolume int64
+		for _, d := range data {
+			totalVolume += d.Volume
+		}
+		indicator.AvgVolume = totalVolume / int64(len(data))
+	}
+
+	// 计算RSI (14日相对强弱指标)
+	indicator.RSI = calculateRSI(data, 14)
+
+	// 计算波动率 (标准差)
+	indicator.Volatility = calculateVolatility(data)
+
+	return indicator
+}
+
+// calculateRSI 计算RSI指标
+func calculateRSI(data []*FundData, period int) float64 {
+	if len(data) < period+1 {
+		return 50.0 // 默认中性值
+	}
+
+	var gains, losses float64
+	count := 0
+
+	for i := len(data) - period; i < len(data); i++ {
+		change := data[i].CurrentPrice - data[i-1].CurrentPrice
+		if change > 0 {
+			gains += change
+		} else {
+			losses -= change
+		}
+		count++
+	}
+
+	if count == 0 {
+		return 50.0
+	}
+
+	avgGain := gains / float64(count)
+	avgLoss := losses / float64(count)
+
+	if avgLoss == 0 {
+		return 100.0
+	}
+
+	rs := avgGain / avgLoss
+	rsi := 100.0 - (100.0 / (1.0 + rs))
+
+	return rsi
+}
+
+// calculateVolatility 计算波动率(日收益率标准差)
+func calculateVolatility(data []*FundData) float64 {
+	if len(data) < 2 {
+		return 0.0
+	}
+
+	// 计算日收益率
+	returns := make([]float64, 0)
+	for i := 1; i < len(data); i++ {
+		if data[i-1].CurrentPrice > 0 {
+			ret := (data[i].CurrentPrice - data[i-1].CurrentPrice) / data[i-1].CurrentPrice
+			returns = append(returns, ret)
+		}
+	}
+
+	if len(returns) == 0 {
+		return 0.0
+	}
+
+	// 计算平均值
+	var sum float64
+	for _, r := range returns {
+		sum += r
+	}
+	mean := sum / float64(len(returns))
+
+	// 计算标准差
+	var variance float64
+	for _, r := range returns {
+		diff := r - mean
+		variance += diff * diff
+	}
+	stdDev := variance / float64(len(returns))
+	stdDev = stdDev
+
+	// 年化波动率 = 日标准差 * sqrt(252)
+	volatility := stdDev * 15.87 // sqrt(252) ≈ 15.87
+
+	return volatility * 100 // 转为百分比
+}
+
+// generateTrendSignal 生成趋势预测信号
+func generateTrendSignal(data []*FundData, indicator *TechnicalIndicator) *TrendSignal {
+	if len(data) < 5 {
+		return &TrendSignal{
+			Trend:      "unknown",
+			Signal:     "hold",
+			Strength:   "weak",
+			Confidence: 0,
+			Suggestion: "数据不足,无法判断",
+		}
+	}
+
+	signal := &TrendSignal{}
+	latestPrice := data[len(data)-1].CurrentPrice
+
+	// 1. 判断趋势方向
+	if indicator.MA5 > indicator.MA20 && latestPrice > indicator.MA5 {
+		signal.Trend = "uptrend"
+	} else if indicator.MA5 < indicator.MA20 && latestPrice < indicator.MA5 {
+		signal.Trend = "downtrend"
+	} else {
+		signal.Trend = "sideways"
+	}
+
+	// 2. 计算支撑位和阻力位 (最近20天的最低/最高价)
+	minPrice := data[0].CurrentPrice
+	maxPrice := data[0].CurrentPrice
+	lookback := 20
+	if len(data) < lookback {
+		lookback = len(data)
+	}
+	for i := len(data) - lookback; i < len(data); i++ {
+		if data[i].LowestPrice < minPrice {
+			minPrice = data[i].LowestPrice
+		}
+		if data[i].HighestPrice > maxPrice {
+			maxPrice = data[i].HighestPrice
+		}
+	}
+	signal.SupportLevel = minPrice
+	signal.ResistanceLevel = maxPrice
+
+	// 3. 生成交易信号 (基于均线和RSI)
+	buyScore := 0
+	sellScore := 0
+
+	// 均线金叉/死叉
+	if indicator.MA5 > indicator.MA20 {
+		buyScore += 2
+	} else {
+		sellScore += 2
+	}
+
+	// 价格在均线上方/下方
+	if latestPrice > indicator.MA5 {
+		buyScore += 1
+	} else {
+		sellScore += 1
+	}
+
+	// RSI超买/超卖
+	if indicator.RSI < 30 {
+		buyScore += 2 // 超卖,可能反弹
+	} else if indicator.RSI > 70 {
+		sellScore += 2 // 超买,可能回调
+	} else if indicator.RSI < 45 {
+		buyScore += 1
+	} else if indicator.RSI > 55 {
+		sellScore += 1
+	}
+
+	// 近期涨跌幅
+	if indicator.Change5D > 2 {
+		sellScore += 1 // 短期涨幅过大
+	} else if indicator.Change5D < -2 {
+		buyScore += 1 // 短期跌幅过大
+	}
+
+	// 4. 确定信号和强度
+	if buyScore > sellScore {
+		signal.Signal = "buy"
+		if buyScore-sellScore >= 3 {
+			signal.Strength = "strong"
+			signal.Confidence = 75.0
+		} else if buyScore-sellScore >= 1 {
+			signal.Strength = "medium"
+			signal.Confidence = 60.0
+		} else {
+			signal.Strength = "weak"
+			signal.Confidence = 45.0
+		}
+	} else if sellScore > buyScore {
+		signal.Signal = "sell"
+		if sellScore-buyScore >= 3 {
+			signal.Strength = "strong"
+			signal.Confidence = 75.0
+		} else if sellScore-buyScore >= 1 {
+			signal.Strength = "medium"
+			signal.Confidence = 60.0
+		} else {
+			signal.Strength = "weak"
+			signal.Confidence = 45.0
+		}
+	} else {
+		signal.Signal = "hold"
+		signal.Strength = "weak"
+		signal.Confidence = 50.0
+	}
+
+	// 5. 生成操作建议
+	signal.Suggestion = generateSuggestion(signal, indicator, latestPrice)
+
+	return signal
+}
+
+// generateSuggestion 生成操作建议
+func generateSuggestion(signal *TrendSignal, indicator *TechnicalIndicator, currentPrice float64) string {
+	switch signal.Signal {
+	case "buy":
+		if signal.Strength == "strong" {
+			// 强烈买入: RSI超卖 + 均线金叉 + 接近支撑位
+			suggestion := fmt.Sprintf("🟢 强烈买入信号 | ")
+			suggestion += fmt.Sprintf("RSI=%.1f(超卖区域) | ", indicator.RSI)
+			suggestion += fmt.Sprintf("当前价%.3f接近支撑位%.3f | ", currentPrice, signal.SupportLevel)
+			suggestion += fmt.Sprintf("5日均线%.3f > 20日均线%.3f | ", indicator.MA5, indicator.MA20)
+			suggestion += "建议分批建仓,设置止损位"
+			return suggestion
+		} else if signal.Strength == "medium" {
+			// 中等买入: 均线上穿或RSI偏低
+			suggestion := fmt.Sprintf("🟡 买入信号 | ")
+			if indicator.MA5 > indicator.MA20 {
+				suggestion += fmt.Sprintf("5日均线%.3f上穿20日均线%.3f | ", indicator.MA5, indicator.MA20)
+			}
+			if indicator.RSI < 45 {
+				suggestion += fmt.Sprintf("RSI=%.1f(偏低) | ", indicator.RSI)
+			}
+			if indicator.Change5D < 0 {
+				suggestion += fmt.Sprintf("5日跌幅%.2f%%(超跌反弹机会) | ", indicator.Change5D)
+			}
+			suggestion += "可适量买入,控制仓位"
+			return suggestion
+		}
+		// 轻微买入
+		return "⚪ 轻微买入信号 | 技术指标略偏多 | 建议观望或小额试探,等待更明确信号"
+
+	case "sell":
+		if signal.Strength == "strong" {
+			// 强烈卖出: RSI超买 + 均线死叉 + 接近阻力位
+			suggestion := fmt.Sprintf("🔴 强烈卖出信号 | ")
+			suggestion += fmt.Sprintf("RSI=%.1f(超买区域) | ", indicator.RSI)
+			suggestion += fmt.Sprintf("当前价%.3f接近阻力位%.3f | ", currentPrice, signal.ResistanceLevel)
+			suggestion += fmt.Sprintf("5日均线%.3f < 20日均线%.3f | ", indicator.MA5, indicator.MA20)
+			suggestion += "建议减仓止盈,规避回调风险"
+			return suggestion
+		} else if signal.Strength == "medium" {
+			// 中等卖出: 均线下穿或RSI偏高
+			suggestion := fmt.Sprintf("🟠 卖出信号 | ")
+			if indicator.MA5 < indicator.MA20 {
+				suggestion += fmt.Sprintf("5日均线%.3f下穿20日均线%.3f | ", indicator.MA5, indicator.MA20)
+			}
+			if indicator.RSI > 60 {
+				suggestion += fmt.Sprintf("RSI=%.1f(偏高) | ", indicator.RSI)
+			}
+			if indicator.Change5D > 3 {
+				suggestion += fmt.Sprintf("5日涨幅%.2f%%(短期过热) | ", indicator.Change5D)
+			}
+			suggestion += "考虑部分止盈,锁定收益"
+			return suggestion
+		}
+		// 轻微卖出
+		return "⚪ 轻微卖出信号 | 技术指标略偏空 | 建议持有观察,可设置移动止盈"
+
+	default:
+		// 持有/震荡
+		if indicator.RSI > 45 && indicator.RSI < 55 {
+			return "⚪ 震荡行情 | RSI中性(45-55) | 建议持有观望,等待突破方向明确"
+		}
+
+		// 根据波动率给出建议
+		if indicator.Volatility > 30 {
+			return fmt.Sprintf("⚪ 高波动震荡 | 波动率%.1f%% | 建议持有,设置宽幅止损,避免频繁交易", indicator.Volatility)
+		} else if indicator.Volatility < 10 {
+			return fmt.Sprintf("⚪ 低波动震荡 | 波动率%.1f%% | 建议持有,关注成交量变化,等待突破", indicator.Volatility)
+		}
+
+		return "⚪ 趋势不明 | 建议继续持有,设置止损位,关注后续走势"
+	}
+}

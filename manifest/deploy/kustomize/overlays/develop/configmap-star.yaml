@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: star-config
+data:
+  config.yaml: |
+    server:
+      address:     ":8000"
+      openapiPath: "/api.json"
+      swaggerPath: "/swagger"
+
+    logger:
+      level: "all"
+      stdout: true
+      path: "/app/log"
+      file: "{Y-m-d}.log"
+      rotateSize: "100M"
+      rotateBackupLimit: 10
+
+    database:
+      default:
+        #link: "mysql:root:123456@tcp(service.default.svc.cluster.local:3306)/star?parseTime=true&loc=Local"
+        link: "mysql:root:123456@tcp(192.168.2.211:3306)/star?parseTime=true&loc=Local"
+
+    xueqiu:
+      cookies:
+        device_id: "ce6aec8ec0983ece22daf3959c2c94b2"
+        xq_a_token: "a8badf9f9f43e59da15a6e59e614356354714b45"
+        u: "471758600436657"
