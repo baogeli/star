@@ -301,6 +301,19 @@ type Risk struct {
 	RSquare           float64 `json:"rSquare" dc:"R方 决定系数，衡量组合与基准的相关性"`
 }
 
+type HelloReq struct {
+	g.Meta `path:"hello" method:"get"`
+}
+type HelloRes struct {
+	Msg string `json:"msg"`
+}
+
+func (that *ReitController) Hello(ctx context.Context, req *HelloReq) (res *HelloRes, err error) {
+	return &HelloRes{
+		Msg: "hello world",
+	}, nil
+}
+
 type GetRiskReq struct {
 	g.Meta `path:"stock/risk" method:"get"`
 }
