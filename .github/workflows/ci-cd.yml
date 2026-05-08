@@ -39,7 +39,7 @@ jobs:
   build-and-push:
     needs: test
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
+    if: startsWith(github.ref, 'refs/tags/')
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -68,33 +68,33 @@ jobs:
           push: true
           tags: |
             ${{ env.IMAGE_NAME }}:${{ github.sha }}
-            ${{ env.IMAGE_NAME }}:latest
+            ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.VERSION }}
 
-  # 3. 部署到 Kubernetes
-  deploy:
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Install kubectl
-        uses: azure/setup-kubectl@v3
-
-      - name: Configure kubeconfig
-        run: |
-          mkdir -p $HOME/.kube
-          echo "${{ secrets.KUBE_CONFIG }}" > $HOME/.kube/config
-
-      - name: Update image in Kustomize
-        run: |
-          cd ${{ env.KUSTOMIZE_DIR }}
-          kustomize edit set image ${IMAGE_NAME}=${IMAGE_NAME}:${{ github.sha }}
-
-      - name: Deploy to K8s
-        run: kubectl apply -k ${{ env.KUSTOMIZE_DIR }}
-
-      - name: Verify deployment
-        run: |
-          kubectl rollout status deployment/boa-star --timeout=300s
+  # 3. 部署到 Kubernetes（需要公网可访问的 K8s 集群）
+  # deploy:
+  #   needs: build-and-push
+  #   runs-on: ubuntu-latest
+  #   if: github.ref == 'refs/heads/main'
+  #   steps:
+  #     - name: Checkout code
+  #       uses: actions/checkout@v3
+  #
+  #     - name: Install kubectl
+  #       uses: azure/setup-kubectl@v3
+  #
+  #     - name: Configure kubeconfig
+  #       run: |
+  #         mkdir -p $HOME/.kube
+  #         echo "${{ secrets.KUBE_CONFIG }}" > $HOME/.kube/config
+  #
+  #     - name: Update image in Kustomize
+  #       run: |
+  #         cd ${{ env.KUSTOMIZE_DIR }}
+  #         kustomize edit set image ${IMAGE_NAME}=${IMAGE_NAME}:${{ github.sha }}
+  #
+  #     - name: Deploy to K8s
+  #       run: kubectl apply -k ${{ env.KUSTOMIZE_DIR }}
+  #
+  #     - name: Verify deployment
+  #       run: |
+  #         kubectl rollout status deployment/boa-star --timeout=300s
