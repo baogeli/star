@@ -1,7 +1,3 @@
-package main
-
-import "fmt"
-
 // 闭包引用外部变量导致内存逃逸
 //func makeCounter() func() int {
 //	count := 0 // 这个变量会逃逸到堆上
@@ -12,38 +8,38 @@ import "fmt"
 //}
 
 // 例子1：状态保持（替代全局变量）
-func newAccumulator() func(int) int {
-	sum := 0
-	return func(n int) int {
-		sum += n
-		return sum
-	}
-}
+//func newAccumulator() func(int) int {
+//	sum := 0
+//	return func(n int) int {
+//		sum += n
+//		return sum
+//	}
+//}
 
 // 例子2：函数工厂（动态生成逻辑）
-func multiplier(factor int) func(int) int {
-	return func(x int) int {
-		return x * factor
-	}
-}
+//func multiplier(factor int) func(int) int {
+//	return func(x int) int {
+//		return x * factor
+//	}
+//}
 
 // 例子3：资源管理（延迟关闭）
-func withResource() func() {
-	resource := "打开的资源"
-	fmt.Println("获取", resource)
-	return func() {
-		fmt.Println("释放", resource)
-	}
-}
-
-func closure() func() int {
-	counts := 0
-	return func() int {
-		counts++
-		return counts
-	}
-}
-func main() {
+//func withResource() func() {
+//	resource := "打开的资源"
+//	fmt.Println("获取", resource)
+//	return func() {
+//		fmt.Println("释放", resource)
+//	}
+//}
+//
+//func closure() func() int {
+//	counts := 0
+//	return func() int {
+//		counts++
+//		return counts
+//	}
+//}
+//func main() {
 	/*
 		count 在堆上：因为被闭包引用，编译器将其分配到堆内存
 		引用共享：counter 函数内部操作的是同一个 count 变量
@@ -56,19 +52,19 @@ func main() {
 	//fmt.Println(counter()) // 2
 	//fmt.Println(counter()) // 3
 
-	var i []int
-	i = make([]int, 0)
-	i = append(i, 1)
-	fmt.Println(i)
-	return
+	//var i []int
+	//i = make([]int, 0)
+	//i = append(i, 1)
+	//fmt.Println(i)
+	//return
 
 	//---------------------------------------------
 
-	double := multiplier(2)
-	triple := multiplier(3)
-
-	fmt.Println(double(5))
-	fmt.Println(triple(5))
+	//double := multiplier(2)
+	//triple := multiplier(3)
+	//
+	//fmt.Println(double(5))
+	//fmt.Println(triple(5))
 
 	/*
 				1. make 和 new 的区别﹖
@@ -306,4 +302,4 @@ func main() {
 
 	*/
 
-}
+//}
