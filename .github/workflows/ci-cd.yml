@@ -52,8 +52,8 @@ jobs:
 
       - name: Build for Linux
         run: |
-          GOOS=linux GOARCH=amd64 go build -o ./temp/linux_amd64/main .
           mkdir -p ./temp/linux_amd64
+          GOOS=linux GOARCH=amd64 go build -o ./temp/linux_amd64/main .
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v2
